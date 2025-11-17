@@ -483,7 +483,6 @@ export const createProduct = async (req, res) => {
       })
     }
 
-    // Verificar código de barras único
     if (barcode && barcode.trim()) {
       const existingProduct = await executeQuery("SELECT id FROM products WHERE barcode = ?", [barcode.trim()])
       if (existingProduct.length > 0) {
@@ -522,9 +521,9 @@ export const createProduct = async (req, res) => {
       productPrice,
       productCost,
       productStock,
-      minStock, // Usar la variable validada
+      minStock,
       productCategoryId,
-      barcode?.trim() || null,
+      barcode?.trim() || null, // Sin restricción de longitud
       image?.trim() || null,
       productUnitType,
       true,
@@ -614,11 +613,11 @@ export const updateProduct = async (req, res) => {
     const productPrice = Number.parseFloat(price)
     const productCost = Number.parseFloat(cost) || 0
 
-    let minStock = existingProduct[0].min_stock // Mantener el valor existente por defecto
+    let minStock = existingProduct[0].min_stock
 
     if (min_stock !== undefined) {
       if (min_stock === null || min_stock === "") {
-        minStock = 10 // Valor por defecto si se envía vacío
+        minStock = 10
       } else {
         minStock = Number.parseFloat(min_stock)
         if (isNaN(minStock) || minStock < 0) {
@@ -689,9 +688,9 @@ export const updateProduct = async (req, res) => {
       description?.trim() || null,
       productPrice,
       productCost,
-      minStock, // Usar la variable validada
+      minStock,
       productCategoryId,
-      barcode?.trim() || null,
+      barcode?.trim() || null, // Sin restricción de longitud
       image?.trim() || null,
       productUnitType,
       productActive,
