@@ -110,11 +110,6 @@ export const validateCreateProduct = [
   body("stock").optional().isFloat({ min: 0 }).withMessage("El stock no puede ser negativo"),
   body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
   body("category_id").optional().isInt({ min: 1 }).withMessage("La categoría debe ser válida"),
-  body("barcode")
-    .optional()
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage("El código de barras debe tener entre 1 y 50 caracteres"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {
@@ -142,11 +137,6 @@ export const validateUpdateProduct = [
   body("cost").optional().isFloat({ min: 0 }).withMessage("El costo no puede ser negativo"),
   body("min_stock").optional().isFloat({ min: 0 }).withMessage("El stock mínimo no puede ser negativo"),
   body("category_id").optional().isInt({ min: 1 }).withMessage("La categoría debe ser válida"),
-  body("barcode")
-    .optional()
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage("El código de barras debe tener entre 1 y 50 caracteres"),
   body("image")
     .optional({ checkFalsy: true })
     .custom((value) => {
