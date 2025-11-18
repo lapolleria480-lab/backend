@@ -227,7 +227,7 @@ export const updateTicketConfig = async (req, res) => {
           show_cashier, show_customer, show_payment_method, show_change,
           fiscal_type, show_tax_breakdown, include_cae,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           enable_print ?? true,
           auto_print ?? false,
@@ -366,11 +366,10 @@ export const generateThermalPDF = async (req, res) => {
       })
     }
 
-    // Configuración del PDF térmico
     // 58mm = 164.409 puntos (1mm = 2.834645669 puntos)
     const THERMAL_WIDTH = 164.409 // 58mm en puntos
-    const MARGIN_LEFT = 8
-    const MARGIN_RIGHT = 8
+    const MARGIN_LEFT = 3  // Reducido de 8 a 3
+    const MARGIN_RIGHT = 3 // Reducido de 8 a 3
     const CONTENT_WIDTH = THERMAL_WIDTH - MARGIN_LEFT - MARGIN_RIGHT
 
     // Tamaños de fuente según configuración
@@ -384,7 +383,7 @@ export const generateThermalPDF = async (req, res) => {
     // Crear documento PDF con tamaño térmico exacto de 58mm
     const doc = new PDFDocument({
       size: [THERMAL_WIDTH, 10000], // Alto dinámico, se ajustará
-      margins: { top: 10, bottom: 10, left: MARGIN_LEFT, right: MARGIN_RIGHT },
+      margins: { top: 8, bottom: 10, left: MARGIN_LEFT, right: MARGIN_RIGHT }, // Margen superior reducido
       bufferPages: true
     })
 
@@ -405,25 +404,25 @@ export const generateThermalPDF = async (req, res) => {
 
     // === ENCABEZADO CON INFORMACIÓN DEL NEGOCIO ===
     if (ticketConfig?.show_business_info && businessConfig) {
-      // Nombre del negocio
+      // Nombre del negocio - centrado
       doc.font('Helvetica-Bold')
         .fontSize(fontSize.title)
         .text(businessConfig.business_name || 'MI NEGOCIO', MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2 // Reducido espaciado
 
       // Información del negocio
       doc.font('Helvetica')
-        .fontSize(fontSize.body)
+        .fontSize(fontSize.small) // Usar fuente más pequeña para info secundaria
 
       if (businessConfig.business_address) {
         doc.text(businessConfig.business_address, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
       }
 
       if (businessConfig.business_phone) {
@@ -431,7 +430,7 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
       }
 
       if (ticketConfig?.show_cuit && businessConfig.business_cuit) {
@@ -439,7 +438,7 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
       }
 
       if (businessConfig.business_email) {
@@ -447,39 +446,38 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
       }
     }
 
     // Mensaje de encabezado personalizado
     if (ticketConfig?.header_message) {
-      yPosition += 5
+      yPosition += 3
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-        .dash(2, { space: 2 })
+        .dash(1, { space: 1 }) // Líneas más delgadas
         .stroke()
-      yPosition += 5
+      yPosition += 3
 
       doc.font('Helvetica')
-        .fontSize(fontSize.body)
+        .fontSize(fontSize.small)
         .text(ticketConfig.header_message, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
-    // Línea doble separadora
-    yPosition += 5
+    yPosition += 3
     doc.undash()
       .moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 2
+    yPosition += 1
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // === TIPO FISCAL Y NÚMERO ===
     doc.font('Helvetica-Bold')
@@ -488,7 +486,7 @@ export const generateThermalPDF = async (req, res) => {
         width: CONTENT_WIDTH,
         align: 'center'
       })
-    yPosition = doc.y + 2
+    yPosition = doc.y + 1
 
     // Fecha y hora
     const saleDate = new Date(saleData.sale.created_at)
@@ -499,40 +497,41 @@ export const generateThermalPDF = async (req, res) => {
     })
     const timeStr = saleDate.toLocaleTimeString('es-AR', { 
       hour: '2-digit', 
-      minute: '2-digit' 
+      minute: '2-digit',
+      hour12: true
     })
     
     doc.font('Helvetica')
-      .fontSize(fontSize.body)
+      .fontSize(fontSize.small)
       .text(`${dateStr} ${timeStr}`, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH,
         align: 'center'
       })
-    yPosition = doc.y + 5
+    yPosition = doc.y + 3
 
     // Línea separadora
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-      .dash(2, { space: 2 })
+      .dash(1, { space: 1 })
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // === INFORMACIÓN DEL CLIENTE ===
     if (ticketConfig?.show_customer && saleData.sale.customer_name && 
         saleData.sale.customer_name !== 'Consumidor Final') {
       doc.undash()
         .font('Helvetica')
-        .fontSize(fontSize.body)
+        .fontSize(fontSize.small)
         .text(`Cliente: ${saleData.sale.customer_name}`, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
-      yPosition = doc.y + 2
+      yPosition = doc.y + 1
 
       if (saleData.sale.customer_document) {
         doc.text(`DNI/CUIT: ${saleData.sale.customer_document}`, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
       }
     }
 
@@ -541,34 +540,35 @@ export const generateThermalPDF = async (req, res) => {
       doc.text(`Cajero: ${saleData.sale.cashier_name}`, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH
       })
-      yPosition = doc.y + 2
+      yPosition = doc.y + 1
     }
 
     // Línea separadora
-    yPosition += 3
+    yPosition += 2
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-      .dash(2, { space: 2 })
+      .dash(1, { space: 1 })
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // === DETALLE DE PRODUCTOS ===
     doc.undash()
       .font('Helvetica-Bold')
       .fontSize(fontSize.body)
       .text('DETALLE DE COMPRA', MARGIN_LEFT, yPosition, {
-        width: CONTENT_WIDTH
+        width: CONTENT_WIDTH,
+        align: 'left' // Alineado a la izquierda
       })
-    yPosition = doc.y + 3
+    yPosition = doc.y + 2
 
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-      .dash(2, { space: 2 })
+      .dash(1, { space: 1 })
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // Items
-    doc.undash().font('Helvetica').fontSize(fontSize.body)
+    doc.undash().font('Helvetica').fontSize(fontSize.small) // Fuente más pequeña
     
     for (const item of saleData.items) {
       const quantity = parseFloat(item.quantity)
@@ -581,38 +581,38 @@ export const generateThermalPDF = async (req, res) => {
         .text(item.product_name, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
-      yPosition = doc.y + 1
+      yPosition = doc.y
 
-      // Detalles: cantidad x precio = total
       doc.font('Helvetica')
         .fontSize(fontSize.small)
       
       const detailText = `${quantity} ${unit} x $${unitPrice.toFixed(2)}`
       const totalText = `$${totalPrice.toFixed(2)}`
       
+      // Cantidad y precio unitario
       doc.text(detailText, MARGIN_LEFT, yPosition, {
-        width: CONTENT_WIDTH * 0.6,
+        width: CONTENT_WIDTH * 0.65,
         continued: true
       })
+      // Total alineado a la derecha
       .text(totalText, {
-        width: CONTENT_WIDTH * 0.4,
+        width: CONTENT_WIDTH * 0.35,
         align: 'right'
       })
       
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
-    // Línea doble separadora
-    yPosition += 2
+    yPosition += 1
     doc.fontSize(fontSize.body)
       .moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 2
+    yPosition += 1
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // === TOTALES ===
     const subtotal = parseFloat(saleData.sale.subtotal)
@@ -620,7 +620,8 @@ export const generateThermalPDF = async (req, res) => {
     const total = parseFloat(saleData.sale.total)
 
     doc.font('Helvetica')
-      .text('Subtotal:', MARGIN_LEFT, yPosition, {
+      .fontSize(fontSize.body)
+      .text('Subtotal', MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH * 0.5,
         continued: true
       })
@@ -628,11 +629,11 @@ export const generateThermalPDF = async (req, res) => {
         width: CONTENT_WIDTH * 0.5,
         align: 'right'
       })
-    yPosition = doc.y + 2
+    yPosition = doc.y + 1
 
     // Desglose de IVA
     if (ticketConfig?.show_tax_breakdown && tax > 0) {
-      doc.text('IVA (21%):', MARGIN_LEFT, yPosition, {
+      doc.text('IVA (21%)', MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH * 0.5,
         continued: true
       })
@@ -640,7 +641,7 @@ export const generateThermalPDF = async (req, res) => {
         width: CONTENT_WIDTH * 0.5,
         align: 'right'
       })
-      yPosition = doc.y + 2
+      yPosition = doc.y + 1
     }
 
     // Línea doble
@@ -648,11 +649,11 @@ export const generateThermalPDF = async (req, res) => {
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 2
+    yPosition += 1
     doc.moveTo(MARGIN_LEFT, yPosition)
       .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
       .stroke()
-    yPosition += 5
+    yPosition += 3
 
     // TOTAL
     doc.font('Helvetica-Bold')
@@ -665,36 +666,36 @@ export const generateThermalPDF = async (req, res) => {
         width: CONTENT_WIDTH * 0.5,
         align: 'right'
       })
-    yPosition = doc.y + 5
+    yPosition = doc.y + 3
 
     // === MÉTODO DE PAGO ===
     if (ticketConfig?.show_payment_method) {
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-        .dash(2, { space: 2 })
+        .dash(1, { space: 1 })
         .stroke()
-      yPosition += 5
+      yPosition += 3
 
       doc.undash()
         .font('Helvetica')
-        .fontSize(fontSize.body)
+        .fontSize(fontSize.small)
 
       if (saleData.sale.payment_method === 'multiple' && saleData.sale.payment_methods_formatted) {
         doc.font('Helvetica-Bold').text('FORMAS DE PAGO:', MARGIN_LEFT, yPosition)
-        yPosition = doc.y + 2
+        yPosition = doc.y + 1
 
         doc.font('Helvetica')
         for (const pm of saleData.sale.payment_methods_formatted) {
           const methodLabels = {
             efectivo: 'Efectivo',
-            tarjeta_credito: 'Tarjeta de Crédito',
-            tarjeta_debito: 'Tarjeta de Débito',
+            tarjeta_credito: 'T. Crédito',
+            tarjeta_debito: 'T. Débito',
             transferencia: 'Transferencia',
-            cuenta_corriente: 'Cuenta Corriente'
+            cuenta_corriente: 'Cta. Cte.'
           }
           const methodLabel = methodLabels[pm.method] || pm.method
 
-          doc.text(`${methodLabel}:`, MARGIN_LEFT, yPosition, {
+          doc.text(`${methodLabel}`, MARGIN_LEFT, yPosition, {
             width: CONTENT_WIDTH * 0.6,
             continued: true
           })
@@ -702,15 +703,15 @@ export const generateThermalPDF = async (req, res) => {
             width: CONTENT_WIDTH * 0.4,
             align: 'right'
           })
-          yPosition = doc.y + 2
+          yPosition = doc.y + 1
         }
       } else {
         const methodLabels = {
           efectivo: 'Efectivo',
-          tarjeta_credito: 'Tarjeta de Crédito',
-          tarjeta_debito: 'Tarjeta de Débito',
+          tarjeta_credito: 'T. Crédito',
+          tarjeta_debito: 'T. Débito',
           transferencia: 'Transferencia',
-          cuenta_corriente: 'Cuenta Corriente',
+          cuenta_corriente: 'Cta. Cte.',
           multiple: 'Múltiples'
         }
         const methodLabel = methodLabels[saleData.sale.payment_method] || saleData.sale.payment_method
@@ -718,18 +719,18 @@ export const generateThermalPDF = async (req, res) => {
         doc.text(`Forma de pago: ${methodLabel}`, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH
         })
-        yPosition = doc.y + 3
+        yPosition = doc.y + 2
       }
     }
 
     // === CAE (AFIP) ===
     if (ticketConfig?.include_cae && saleData.sale.cae) {
-      yPosition += 3
+      yPosition += 2
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
-        .dash(2, { space: 2 })
+        .dash(1, { space: 1 })
         .stroke()
-      yPosition += 5
+      yPosition += 3
 
       doc.undash()
         .font('Helvetica')
@@ -738,26 +739,26 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 1
+      yPosition = doc.y
 
       doc.text(`Vto. CAE: ${saleData.sale.cae_expiration}`, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH,
         align: 'center'
       })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
     // === POLÍTICA DE DEVOLUCIONES ===
     if (ticketConfig?.return_policy) {
-      yPosition += 5
+      yPosition += 3
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
         .stroke()
-      yPosition += 2
+      yPosition += 1
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
         .stroke()
-      yPosition += 5
+      yPosition += 3
 
       doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
@@ -765,27 +766,27 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 2
+      yPosition = doc.y + 1
 
       doc.font('Helvetica')
         .text(ticketConfig.return_policy, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
     // === PIE DE PÁGINA ===
     if (ticketConfig?.footer_message || businessConfig?.business_footer_message) {
-      yPosition += 5
+      yPosition += 3
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
         .stroke()
-      yPosition += 2
+      yPosition += 1
       doc.moveTo(MARGIN_LEFT, yPosition)
         .lineTo(THERMAL_WIDTH - MARGIN_RIGHT, yPosition)
         .stroke()
-      yPosition += 5
+      yPosition += 3
 
       doc.font('Helvetica')
         .fontSize(fontSize.small)
@@ -793,7 +794,7 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
     // Información adicional del negocio
@@ -804,7 +805,7 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 2
+      yPosition = doc.y + 1
     }
 
     if (businessConfig?.business_website) {
@@ -814,7 +815,7 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH,
           align: 'center'
         })
-      yPosition = doc.y + 3
+      yPosition = doc.y + 2
     }
 
     // Finalizar el documento
