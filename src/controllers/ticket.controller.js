@@ -415,7 +415,7 @@ export const generateThermalPDF = async (req, res) => {
       yPosition = doc.y + 2 // Reducido espaciado
 
       // Información del negocio
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido para toda la info
 
@@ -461,7 +461,7 @@ export const generateThermalPDF = async (req, res) => {
         .stroke()
       yPosition += 3
 
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
         .text(ticketConfig.header_message, MARGIN_LEFT, yPosition, {
@@ -505,7 +505,7 @@ export const generateThermalPDF = async (req, res) => {
       hour12: true
     })
     
-    doc.font('Helvetica')
+    doc.font('Helvetica-Bold')
       .fontSize(fontSize.small)
       .fillColor('#000000') // Color negro sólido
       .text(`${dateStr} ${timeStr}`, MARGIN_LEFT, yPosition, {
@@ -525,7 +525,7 @@ export const generateThermalPDF = async (req, res) => {
     if (ticketConfig?.show_customer && saleData.sale.customer_name && 
         saleData.sale.customer_name !== 'Consumidor Final') {
       doc.undash()
-        .font('Helvetica')
+        .font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
         .text(`Cliente: ${saleData.sale.customer_name}`, MARGIN_LEFT, yPosition, {
@@ -576,7 +576,7 @@ export const generateThermalPDF = async (req, res) => {
     yPosition += 3
 
     // Items
-    doc.undash().font('Helvetica').fontSize(fontSize.small).fillColor('#000000') // Color negro sólido
+    doc.undash().font('Helvetica-Bold').fontSize(fontSize.small).fillColor('#000000') // Color negro sólido
     
     for (const item of saleData.items) {
       const quantity = parseFloat(item.quantity)
@@ -592,7 +592,7 @@ export const generateThermalPDF = async (req, res) => {
         })
       yPosition = doc.y
 
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
       
@@ -629,7 +629,7 @@ export const generateThermalPDF = async (req, res) => {
     const tax = parseFloat(saleData.sale.tax || 0)
     const total = parseFloat(saleData.sale.total)
 
-    doc.font('Helvetica')
+    doc.font('Helvetica-Bold')
       .fontSize(fontSize.body)
       .fillColor('#000000') // Color negro sólido
       .text('Subtotal', MARGIN_LEFT, yPosition, {
@@ -690,7 +690,7 @@ export const generateThermalPDF = async (req, res) => {
       yPosition += 3
 
       doc.undash()
-        .font('Helvetica')
+        .font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
 
@@ -698,7 +698,7 @@ export const generateThermalPDF = async (req, res) => {
         doc.font('Helvetica-Bold').text('FORMAS DE PAGO:', MARGIN_LEFT, yPosition)
         yPosition = doc.y + 1
 
-        doc.font('Helvetica').fillColor('#000000') // Color negro sólido
+        doc.font('Helvetica-Bold').fillColor('#000000') // Color negro sólido
         for (const pm of saleData.sale.payment_methods_formatted) {
           const methodLabels = {
             efectivo: 'Efectivo',
@@ -747,7 +747,7 @@ export const generateThermalPDF = async (req, res) => {
       yPosition += 3
 
       doc.undash()
-        .font('Helvetica')
+        .font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
         .text(`CAE: ${saleData.sale.cae}`, MARGIN_LEFT, yPosition, {
@@ -784,7 +784,7 @@ export const generateThermalPDF = async (req, res) => {
         })
       yPosition = doc.y + 1
 
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fillColor('#000000') // Color negro sólido
         .text(ticketConfig.return_policy, MARGIN_LEFT, yPosition, {
           width: CONTENT_WIDTH,
@@ -805,7 +805,7 @@ export const generateThermalPDF = async (req, res) => {
         .stroke()
       yPosition += 3
 
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
         .text(ticketConfig.footer_message || businessConfig.business_footer_message, MARGIN_LEFT, yPosition, {
@@ -828,7 +828,7 @@ export const generateThermalPDF = async (req, res) => {
     }
 
     if (businessConfig?.business_website) {
-      doc.font('Helvetica')
+      doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
         .text(businessConfig.business_website, MARGIN_LEFT, yPosition, {
@@ -863,3 +863,4 @@ export const generateThermalPDF = async (req, res) => {
     })
   }
 }
++9
