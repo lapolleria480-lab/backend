@@ -442,7 +442,7 @@ export const createSale = async (req, res) => {
     if (isMultiplePayment) {
       console.log("💳 Procesando venta con múltiples métodos de pago")
 
-      // Validar que la suma de los pagos m��ltiples sea igual al total
+      // Validar que la suma de los pagos múltiples sea igual al total
       const totalPayments = payment_methods.reduce((sum, pm) => sum + Number.parseFloat(pm.amount), 0)
       const totalAmount = Number.parseFloat(total)
 
@@ -788,14 +788,18 @@ export const createSale = async (req, res) => {
 
     console.log("✅ Stock verificado para", productStockInfo.length, "productos")
 
+    // Obtener la sesión de caja abierta para registrar la venta
+    const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1");
+    const cashSessionId = openSession.length > 0 ? openSession[0].id : null;
+
     // Crear la venta - SIN descuento
     console.log("💾 Creando venta en base de datos...")
 
     const saleResult = await executeQuery(
       `INSERT INTO sales (
       subtotal, tax, total, payment_method, payment_methods, payment_data, 
-      customer_id, notes, user_id, status, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP)`,
+      customer_id, notes, user_id, status, created_at, cash_session_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?)`,
       [
         subtotalAmount,
         taxAmount,
@@ -806,6 +810,7 @@ export const createSale = async (req, res) => {
         finalCustomerId,
         notes,
         req.user?.id || null,
+        cashSessionId, // Asociar la venta a la sesión de caja abierta
       ],
     )
 
@@ -981,7 +986,7 @@ export const createSale = async (req, res) => {
   }
 }
 
-// CORREGIDO: Cancelar venta con reversión completa y mejorada
+// CORREGIDO: Cancelar venta con validación de sesión de caja y tipo correcto
 export const cancelSale = async (req, res) => {
   try {
     const { id } = req.params
@@ -1001,23 +1006,68 @@ export const cancelSale = async (req, res) => {
 
     const saleId = Number.parseInt(id)
 
-    // Verificar que la venta existe y está completada
-    const saleQuery = await executeQuery("SELECT * FROM sales WHERE id = ? AND status = 'completed'", [saleId])
+    const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1")
+
+    if (openSession.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No hay una caja abierta. No se pueden cancelar ventas cuando la caja está cerrada.",
+        code: "NO_OPEN_CASH",
+      })
+    }
+
+    const currentSessionId = openSession[0].id
+    console.log("✅ Sesión de caja abierta encontrada:", currentSessionId)
+
+    const saleQuery = await executeQuery(
+      "SELECT * FROM sales WHERE id = ? AND status = 'completed' AND cash_session_id = ?",
+      [saleId, currentSessionId]
+    )
 
     if (saleQuery.length === 0) {
-      return res.status(404).json({
+      // Verificar si la venta existe pero no pertenece a la sesión actual
+      const saleExistsQuery = await executeQuery("SELECT id, status, cash_session_id FROM sales WHERE id = ?", [saleId])
+      
+      if (saleExistsQuery.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Venta no encontrada",
+          code: "SALE_NOT_FOUND",
+        })
+      }
+
+      const existingSale = saleExistsQuery[0]
+
+      if (existingSale.status === 'cancelled') {
+        return res.status(400).json({
+          success: false,
+          message: "La venta ya está cancelada",
+          code: "SALE_ALREADY_CANCELLED",
+        })
+      }
+
+      if (existingSale.cash_session_id !== currentSessionId) {
+        return res.status(400).json({
+          success: false,
+          message: "No puedes cancelar ventas de sesiones de caja anteriores. Solo puedes cancelar ventas de la sesión actual.",
+          code: "SALE_FROM_DIFFERENT_SESSION",
+        })
+      }
+
+      return res.status(400).json({
         success: false,
-        message: "Venta no encontrada o ya está cancelada",
-        code: "SALE_NOT_FOUND_OR_CANCELLED",
+        message: "La venta no se puede cancelar",
+        code: "SALE_CANNOT_BE_CANCELLED",
       })
     }
 
     const sale = saleQuery[0]
-    console.log("✅ Venta encontrada:", {
+    console.log("✅ Venta encontrada y validada:", {
       id: sale.id,
       total: sale.total,
       payment_method: sale.payment_method,
       customer_id: sale.customer_id,
+      session_id: sale.cash_session_id,
     })
 
     // Obtener items de la venta para restaurar stock
@@ -1095,83 +1145,79 @@ export const cancelSale = async (req, res) => {
       })
     }
 
-    // 4. Fixed: Create withdrawal movements in cash with valid 'withdrawal' type
+    // 4. Crear movimientos de cancelación en caja con tipo 'cancellation'
     try {
-      const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1")
+      // Determinar si es pago múltiple o simple
+      const isMultiplePayment = sale.payment_method === "multiple" && sale.payment_methods
 
-      if (openSession.length > 0) {
-        const sessionId = openSession[0].id
+      if (isMultiplePayment) {
+        try {
+          const paymentMethods = JSON.parse(sale.payment_methods)
+          console.log("💳 Procesando cancelación para múltiples métodos de pago:", paymentMethods)
 
-        // Determinar si es pago múltiple o simple
-        const isMultiplePayment = sale.payment_method === "multiple" && sale.payment_methods
-
-        if (isMultiplePayment) {
-          try {
-            const paymentMethods = JSON.parse(sale.payment_methods)
-            console.log("💳 Procesando cancelación para múltiples métodos de pago:", paymentMethods)
-
-            // Crear movimiento de retiro para cada método de pago
-            for (const pm of paymentMethods) {
-              queries.push({
-                query: `
-                INSERT INTO cash_movements (
-                  cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-                ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-              `,
-                params: [
-                  sessionId,
-                  -Math.abs(Number.parseFloat(pm.amount)), // Monto negativo para retiro
-                  `Cancelación Venta #${saleId} (${pm.method}) - ${reason}`,
-                  pm.method,
-                  saleId,
-                  req.user?.id || null,
-                ],
-              })
-            }
-          } catch (parseError) {
-            console.warn("⚠️ Error parseando payment_methods para cancelación en caja:", parseError)
-            // Crear movimiento general si no se puede parsear
+          for (const pm of paymentMethods) {
             queries.push({
               query: `
-              INSERT INTO cash_movements (
-                cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-              ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            `,
+                INSERT INTO cash_movements (
+                  cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
+                ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              `,
               params: [
-                sessionId,
-                -Math.abs(Number.parseFloat(sale.total)), // Monto negativo
-                `Cancelación Venta #${saleId} - ${reason}`,
-                "multiple",
+                currentSessionId,
+                -Math.abs(Number.parseFloat(pm.amount)), // Monto negativo para cancelación
+                `Cancelación Venta #${saleId} (${pm.method}) - ${reason}`,
+                pm.method,
                 saleId,
                 req.user?.id || null,
               ],
             })
           }
-        } else {
-          // Pago simple
+        } catch (parseError) {
+          console.warn("⚠️ Error parseando payment_methods para cancelación en caja:", parseError)
+          // Crear movimiento general si no se puede parsear
           queries.push({
             query: `
-            INSERT INTO cash_movements (
-              cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-            ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-          `,
+              INSERT INTO cash_movements (
+                cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
+              ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `,
             params: [
-              sessionId,
-              -Math.abs(Number.parseFloat(sale.total)), // Monto negativo para retiro
+              currentSessionId,
+              -Math.abs(Number.parseFloat(sale.total)), // Monto negativo
               `Cancelación Venta #${saleId} - ${reason}`,
-              sale.payment_method,
+              "multiple",
               saleId,
               req.user?.id || null,
             ],
           })
         }
-
-        console.log("💰 Movimientos de caja preparados para cancelación con tipo 'withdrawal'")
       } else {
-        console.warn("⚠️ No hay caja abierta, omitiendo movimientos de caja")
+        queries.push({
+          query: `
+            INSERT INTO cash_movements (
+              cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
+            ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+          `,
+          params: [
+            currentSessionId,
+            -Math.abs(Number.parseFloat(sale.total)), // Monto negativo para cancelación
+            `Cancelación Venta #${saleId} - ${reason}`,
+            sale.payment_method,
+            saleId,
+            req.user?.id || null,
+          ],
+        })
       }
+
+      console.log("💰 Movimientos de caja preparados para cancelación con tipo 'cancellation'")
     } catch (cashError) {
       console.warn("⚠️ Error preparando movimientos de cancelación en caja:", cashError)
+      // Si hay error, no cancelar la venta
+      return res.status(500).json({
+        success: false,
+        message: "Error al preparar los movimientos de caja para la cancelación",
+        code: "CASH_MOVEMENT_ERROR",
+      })
     }
 
     // 5. Manejar transacciones de cliente para cuenta corriente

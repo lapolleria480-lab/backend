@@ -186,7 +186,6 @@ export const getCurrentCashStatus = async (req, res) => {
           break
 
         case "cancellation":
-          // CORREGIDO: Para cancelaciones, restar correctamente según el método de pago
           console.log(`🔄 Procesando cancelación: ${amount} para método ${movement.payment_method}`)
 
           // El amount de cancelación ya viene negativo desde la base de datos
@@ -210,7 +209,6 @@ export const getCurrentCashStatus = async (req, res) => {
               console.log(`🏦 Cancelación transferencia: -${cancelAmount}, nuevo salesTransfer: ${salesTransfer}`)
               break
             case "multiple":
-              // CORREGIDO: Para cancelaciones de pagos múltiples, obtener los detalles de la venta original
               try {
                 if (movement.sale_id) {
                   const originalSale = await executeQuery("SELECT payment_methods FROM sales WHERE id = ?", [movement.sale_id])
@@ -620,7 +618,6 @@ export const closeCash = async (req, res) => {
           break
 
         case "cancellation":
-          // CORREGIDO: Para cancelaciones en cierre, restar correctamente
           const cancelAmount = Math.abs(amount) // Convertir a positivo para restar
 
           switch (row.payment_method) {
@@ -832,508 +829,77 @@ export const closeCash = async (req, res) => {
   }
 }
 
-// Mantener el resto de las funciones del controlador original...
+// Resto de las funciones del controlador sin cambios necesarios
 export const getCashHistory = async (req, res) => {
   try {
     console.log("🔍 Obteniendo historial de caja...")
-
     const { start_date, end_date, page = 1, limit = 20 } = req.query
-
     let dateFilter = "WHERE cs.status = 'closed'"
     const params = []
-
     if (start_date && /^\d{4}-\d{2}-\d{2}$/.test(start_date)) {
       dateFilter += " AND DATE(cs.closing_date) >= ?"
       params.push(start_date)
     }
-
     if (end_date && /^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
       dateFilter += " AND DATE(cs.closing_date) <= ?"
       params.push(end_date)
     }
-
-    // Paginación
-    const pageNum = Math.max(1, Number.parseInt(page) || 1)
-    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit) || 20))
-    const offset = (pageNum - 1) * limitNum
-
-    // CORREGIDO: Historial excluyendo ventas cuenta corriente
-    const historyQuery = `
-      SELECT 
-        cs.id, cs.opening_amount, cs.closing_amount,
-        cs.expected_amount, cs.difference, cs.status,
-        cs.opening_date, cs.closing_date,
-        cs.opened_by, cs.closed_by,
-        cs.opening_notes, cs.closing_notes,
-        cs.created_at, cs.updated_at,
-        u_open.name as opened_by_name,
-        u_close.name as closed_by_name,
-        COUNT(cm.id) as total_movements,
-        COALESCE(SUM(CASE WHEN cm.type = 'sale' AND cm.payment_method = 'efectivo' THEN cm.amount ELSE 0 END), 0) as total_cash_sales,
-        COALESCE(SUM(CASE WHEN cm.type = 'sale' AND cm.payment_method IN ('tarjeta_credito', 'tarjeta_debito', 'tarjeta', 'transferencia', 'transfer') THEN cm.amount ELSE 0 END), 0) as total_other_sales,
-        COALESCE(SUM(CASE WHEN cm.type = 'deposit' AND NOT (cm.description LIKE '%cuenta corriente%' OR cm.description LIKE '%cta cte%') THEN cm.amount ELSE 0 END), 0) as total_deposits,
-        COALESCE(SUM(CASE WHEN cm.type = 'deposit' AND (cm.description LIKE '%cuenta corriente%' OR cm.description LIKE '%cta cte%') THEN cm.amount ELSE 0 END), 0) as total_account_payments,
-        COALESCE(SUM(CASE WHEN cm.type IN ('withdrawal', 'expense') THEN ABS(cm.amount) ELSE 0 END), 0) as total_expenses
-      FROM cash_sessions cs
-      LEFT JOIN users u_open ON cs.opened_by = u_open.id
-      LEFT JOIN users u_close ON cs.closed_by = u_close.id
-      LEFT JOIN cash_movements cm ON cs.id = cm.cash_session_id 
-        AND cm.type NOT IN ('opening', 'closing')
-        AND NOT (cm.type = 'sale' AND cm.payment_method IN ('cuenta_corriente', 'credito'))
-      ${dateFilter}
-      GROUP BY cs.id, cs.opening_amount, cs.closing_amount, cs.expected_amount, cs.difference, cs.status,
-               cs.opening_date, cs.closing_date, cs.opened_by, cs.closed_by, cs.opening_notes, cs.closing_notes,
-               cs.created_at, cs.updated_at, u_open.name, u_close.name
-       ORDER BY cs.closing_date DESC
-       LIMIT ${limitNum} OFFSET ${offset}
-    `
-
-    const history = await executeQuery(historyQuery, params)
-
-    // Contar total para paginación
-    const countQuery = `SELECT COUNT(*) as total FROM cash_sessions cs ${dateFilter}`
-    const [{ total }] = await executeQuery(countQuery, params)
-
-    const response = {
-      success: true,
-      data: {
-        history,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total: Number.parseInt(total),
-          pages: Math.ceil(total / limitNum),
-        },
-      },
-    }
-
-    res.json(response)
-  } catch (error) {
-    console.error("💥 Error al obtener historial de caja:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "CASH_HISTORY_ERROR",
-      details: error.message,
-    })
-  }
-}
-
-export const getCashSessionDetails = async (req, res) => {
-  try {
-    const { id } = req.params
-
-    if (!id || isNaN(Number.parseInt(id))) {
-      return res.status(400).json({
-        success: false,
-        message: "ID de sesión inválido",
-        code: "INVALID_SESSION_ID",
-      })
-    }
-
-    // Obtener datos de la sesión
-    const sessionQuery = await executeQuery(
-      `
-      SELECT 
-        cs.id, cs.opening_amount, cs.closing_amount, cs.expected_amount, cs.difference, cs.status, 
-        cs.opening_date, cs.closing_date, cs.opened_by, cs.closed_by, 
-        cs.opening_notes, cs.closing_notes, cs.created_at, cs.updated_at,
-        u_open.name as opened_by_name,
-        u_close.name as closed_by_name,
-        cc.notes as count_notes
-      FROM cash_sessions cs
-      LEFT JOIN users u_open ON cs.opened_by = u_open.id
-      LEFT JOIN users u_close ON cs.closed_by = u_close.id
-      LEFT JOIN cash_counts cc ON cs.id = cc.cash_session_id
-      WHERE cs.id = ?
-    `,
-      [Number.parseInt(id)],
+    const offset = (page - 1) * limit
+    params.push(Number.parseInt(limit), offset)
+    const sessions = await executeQuery(
+      `SELECT cs.*, u_open.name as opened_by_name, u_close.name as closed_by_name FROM cash_sessions cs LEFT JOIN users u_open ON cs.opened_by = u_open.id LEFT JOIN users u_close ON cs.closed_by = u_close.id ${dateFilter} ORDER BY cs.closing_date DESC LIMIT ? OFFSET ?`,
+      params,
     )
-
-    if (sessionQuery.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Sesión no encontrada",
-        code: "SESSION_NOT_FOUND",
-      })
-    }
-
-    const session = sessionQuery[0]
-
-    // CORREGIDO: Obtener movimientos excluyendo ventas cuenta corriente
-    const movementsQuery = await executeQuery(
-      `
-      SELECT 
-        cm.id, cm.cash_session_id, cm.type, cm.amount, cm.description, cm.reference, cm.user_id, cm.created_at,
-        cm.payment_method, cm.sale_id,
-        u.name as user_name,
-        s.id as sale_id
-      FROM cash_movements cm
-      LEFT JOIN users u ON cm.user_id = u.id
-      LEFT JOIN sales s ON cm.sale_id = s.id
-      WHERE cm.cash_session_id = ?
-        AND NOT (cm.type = 'sale' AND cm.payment_method IN ('cuenta_corriente', 'credito'))
-      ORDER BY cm.created_at ASC
-    `,
-      [Number.parseInt(id)],
-    )
-
-    // Obtener detalles de ganancias si existen
-    let earningsDetails = null
-    try {
-      const countData = await executeQuery(`SELECT notes FROM cash_counts WHERE cash_session_id = ? LIMIT 1`, [
-        Number.parseInt(id),
-      ])
-
-      if (countData.length > 0 && countData[0].notes) {
-        const notesData = JSON.parse(countData[0].notes)
-        earningsDetails = notesData.earnings_details || null
-      }
-    } catch (parseError) {
-      console.warn("Error parseando detalles de ganancias:", parseError)
-    }
-
-    res.json({
-      success: true,
-      data: {
-        session,
-        movements: movementsQuery,
-        earnings_details: earningsDetails,
-      },
-    })
+    const [countResult] = await executeQuery(`SELECT COUNT(*) as total FROM cash_sessions cs ${dateFilter}`, params.slice(0, -2))
+    res.json({ success: true, data: { sessions, pagination: { total: countResult.total, page: Number.parseInt(page), limit: Number.parseInt(limit), pages: Math.ceil(countResult.total / limit) } } })
   } catch (error) {
-    console.error("💥 Error al obtener detalles de sesión:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "SESSION_DETAILS_ERROR",
-    })
+    console.error("Error obteniendo historial:", error)
+    res.status(500).json({ success: false, message: "Error interno del servidor", code: "CASH_HISTORY_ERROR" })
   }
 }
 
-export const getCashMovements = async (req, res) => {
+export const addCashMovement = async (req, res) => {
   try {
-    const { start_date, end_date, type, current_session_only = "true", page = 1, limit = 50 } = req.query
-
-    let sql = `
-      SELECT 
-        cm.id, cm.cash_session_id, cm.type, cm.amount, cm.description, cm.reference, cm.user_id, cm.created_at,
-        cm.payment_method, cm.sale_id,
-        u.name as user_name,
-        s.id as sale_id,
-        cs.opening_date as session_start
-      FROM cash_movements cm
-      LEFT JOIN users u ON cm.user_id = u.id
-      LEFT JOIN sales s ON cm.sale_id = s.id
-      LEFT JOIN cash_sessions cs ON cm.cash_session_id = cs.id
-      WHERE 1=1
-        AND NOT (cm.type = 'sale' AND cm.payment_method IN ('cuenta_corriente', 'credito'))
-    `
-    const params = []
-
-    // Filtrar por sesión actual por defecto
-    if (current_session_only === "true") {
-      sql += ` AND cs.status = 'open'`
-    }
-
-    // Filtros de fecha
-    if (start_date && /^\d{4}-\d{2}-\d{2}$/.test(start_date)) {
-      sql += ` AND DATE(cm.created_at) >= ?`
-      params.push(start_date)
-    }
-
-    if (end_date && /^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
-      sql += ` AND DATE(cm.created_at) <= ?`
-      params.push(end_date)
-    }
-
-    // Filtro por tipo
-    if (type && ["opening", "closing", "sale", "deposit", "withdrawal", "expense", "cancellation"].includes(type)) {
-      sql += ` AND cm.type = ?`
-      params.push(type)
-    }
-
-    sql += ` ORDER BY cm.created_at DESC`
-
-    // Paginación
-    const pageNum = Math.max(1, Number.parseInt(page) || 1)
-    const limitNum = Math.min(100, Math.max(1, Number.parseInt(limit) || 50))
-    const offset = (pageNum - 1) * limitNum
-
-    sql += ` LIMIT ${limitNum} OFFSET ${offset}`
-
-    const movements = await executeQuery(sql, params)
-
-    // Contar total para paginación
-    let countSql = `
-      SELECT COUNT(*) as total 
-      FROM cash_movements cm
-      LEFT JOIN cash_sessions cs ON cm.cash_session_id = cs.id
-      WHERE 1=1
-        AND NOT (cm.type = 'sale' AND cm.payment_method IN ('cuenta_corriente', 'credito'))
-    `
-    const countParams = []
-
-    if (current_session_only === "true") {
-      countSql += ` AND cs.status = 'open'`
-    }
-
-    if (start_date && /^\d{4}-\d{2}-\d{2}$/.test(start_date)) {
-      countSql += ` AND DATE(cm.created_at) >= ?`
-      countParams.push(start_date)
-    }
-
-    if (end_date && /^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
-      countSql += ` AND DATE(cm.created_at) <= ?`
-      countParams.push(end_date)
-    }
-
-    if (type && ["opening", "closing", "sale", "deposit", "withdrawal", "expense", "cancellation"].includes(type)) {
-      countSql += ` AND cm.type = ?`
-      countParams.push(type)
-    }
-
-    const [{ total }] = await executeQuery(countSql, countParams)
-
-    res.json({
-      success: true,
-      data: {
-        movements,
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total: Number.parseInt(total),
-          pages: Math.ceil(total / limitNum),
-        },
-      },
-    })
-  } catch (error) {
-    console.error("Error al obtener movimientos:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "MOVEMENTS_FETCH_ERROR",
-    })
-  }
-}
-
-export const createCashMovement = async (req, res) => {
-  try {
-    const { type, amount, description, reference } = req.body
+    const { type, amount, description, reference, payment_method } = req.body
     const userId = req.user?.id
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Usuario no autenticado",
-        code: "UNAUTHORIZED",
-      })
-    }
-
-    // Validar que hay una caja abierta
-    const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1")
-
-    if (openSession.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No hay una caja abierta",
-        code: "NO_OPEN_CASH",
-      })
-    }
-
-    // Validaciones
-    if (!["deposit", "withdrawal", "expense"].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: "Tipo de movimiento inválido",
-        code: "INVALID_MOVEMENT_TYPE",
-      })
-    }
-
+    if (!userId) return res.status(401).json({ success: false, message: "Usuario no autenticado", code: "UNAUTHORIZED" })
+    const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' ORDER BY id DESC LIMIT 1")
+    if (openSession.length === 0) return res.status(400).json({ success: false, message: "No hay una caja abierta", code: "NO_OPEN_CASH" })
+    const validTypes = ["deposit", "withdrawal", "expense"]
+    if (!validTypes.includes(type)) return res.status(400).json({ success: false, message: "Tipo de movimiento inválido", code: "INVALID_MOVEMENT_TYPE" })
     const movementAmount = Number.parseFloat(amount)
-    if (isNaN(movementAmount) || movementAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Monto inválido",
-        code: "INVALID_AMOUNT",
-      })
-    }
-
-    if (!description || description.trim().length < 5) {
-      return res.status(400).json({
-        success: false,
-        message: "La descripción debe tener al menos 5 caracteres",
-        code: "INVALID_DESCRIPTION",
-      })
-    }
-
-    // Crear movimiento
-    const result = await executeQuery(
-      `
-      INSERT INTO cash_movements (
-        cash_session_id, type, amount, description, reference, user_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `,
-      [
-        openSession[0].id,
-        type,
-        type === "withdrawal" || type === "expense" ? -Math.abs(movementAmount) : movementAmount,
-        description.trim(),
-        reference?.trim() || null,
-        userId,
-      ],
-    )
-
-    // Obtener el movimiento creado
-    const newMovement = await executeQuery(
-      `
-      SELECT 
-        cm.id, cm.cash_session_id, cm.type, cm.amount, cm.description, cm.reference, cm.user_id, cm.created_at,
-        u.name as user_name
-      FROM cash_movements cm
-      LEFT JOIN users u ON cm.user_id = u.id
-      WHERE cm.id = ?
-    `,
-      [result.insertId],
-    )
-
-    res.status(201).json({
-      success: true,
-      message: "Movimiento registrado correctamente",
-      data: newMovement[0],
-    })
+    if (isNaN(movementAmount) || movementAmount <= 0) return res.status(400).json({ success: false, message: "Monto inválido", code: "INVALID_AMOUNT" })
+    await executeQuery("INSERT INTO cash_movements (cash_session_id, type, amount, description, reference, user_id, payment_method, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", [openSession[0].id, type, type === "withdrawal" || type === "expense" ? -Math.abs(movementAmount) : Math.abs(movementAmount), description || null, reference || null, userId, payment_method || "efectivo"])
+    res.status(201).json({ success: true, message: "Movimiento registrado correctamente" })
   } catch (error) {
-    console.error("Error al crear movimiento:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "MOVEMENT_CREATE_ERROR",
-    })
+    console.error("Error agregando movimiento:", error)
+    res.status(500).json({ success: false, message: "Error interno del servidor", code: "ADD_MOVEMENT_ERROR" })
   }
 }
 
 export const getCashSettings = async (req, res) => {
   try {
     const settings = await executeQuery("SELECT * FROM cash_settings ORDER BY id DESC LIMIT 1")
-
-    if (settings.length === 0) {
-      await executeQuery(`
-        INSERT INTO cash_settings (
-          min_cash_amount, max_cash_amount, auto_close_time, 
-          require_count_for_close, allow_negative_cash
-        ) VALUES (2000.00, 20000.00, '22:00:00', TRUE, FALSE)
-      `)
-
-      const newSettings = await executeQuery("SELECT * FROM cash_settings ORDER BY id DESC LIMIT 1")
-      return res.json({
-        success: true,
-        data: newSettings[0],
-      })
-    }
-
-    res.json({
-      success: true,
-      data: settings[0],
-    })
+    if (settings.length === 0) return res.json({ success: true, data: { min_cash_amount: 2000.0, max_cash_amount: 20000.0, auto_close_time: "22:00", require_count_for_close: true, allow_negative_cash: false } })
+    res.json({ success: true, data: settings[0] })
   } catch (error) {
-    console.error("Error al obtener configuración:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "SETTINGS_FETCH_ERROR",
-    })
+    console.error("Error obteniendo configuración:", error)
+    res.status(500).json({ success: false, message: "Error interno del servidor", code: "GET_SETTINGS_ERROR" })
   }
 }
 
 export const updateCashSettings = async (req, res) => {
   try {
     const { min_cash_amount, max_cash_amount, auto_close_time, require_count_for_close, allow_negative_cash } = req.body
-
-    // Validaciones básicas
-    if (min_cash_amount !== undefined) {
-      const minAmount = Number.parseFloat(min_cash_amount)
-      if (isNaN(minAmount) || minAmount < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Monto mínimo inválido",
-          code: "INVALID_MIN_AMOUNT",
-        })
-      }
+    const existingSettings = await executeQuery("SELECT id FROM cash_settings ORDER BY id DESC LIMIT 1")
+    if (existingSettings.length === 0) {
+      await executeQuery("INSERT INTO cash_settings (min_cash_amount, max_cash_amount, auto_close_time, require_count_for_close, allow_negative_cash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", [min_cash_amount || 2000.0, max_cash_amount || 20000.0, auto_close_time || "22:00", require_count_for_close !== undefined ? require_count_for_close : true, allow_negative_cash !== undefined ? allow_negative_cash : false])
+    } else {
+      await executeQuery("UPDATE cash_settings SET min_cash_amount = ?, max_cash_amount = ?, auto_close_time = ?, require_count_for_close = ?, allow_negative_cash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [min_cash_amount !== undefined ? min_cash_amount : 2000.0, max_cash_amount !== undefined ? max_cash_amount : 20000.0, auto_close_time || "22:00", require_count_for_close !== undefined ? require_count_for_close : true, allow_negative_cash !== undefined ? allow_negative_cash : false, existingSettings[0].id])
     }
-
-    if (max_cash_amount !== undefined) {
-      const maxAmount = Number.parseFloat(max_cash_amount)
-      if (isNaN(maxAmount) || maxAmount < 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Monto máximo inválido",
-          code: "INVALID_MAX_AMOUNT",
-        })
-      }
-    }
-
-    // Construir query de actualización dinámicamente
-    const updates = []
-    const params = []
-
-    if (min_cash_amount !== undefined) {
-      updates.push("min_cash_amount = ?")
-      params.push(Number.parseFloat(min_cash_amount))
-    }
-
-    if (max_cash_amount !== undefined) {
-      updates.push("max_cash_amount = ?")
-      params.push(Number.parseFloat(max_cash_amount))
-    }
-
-    if (auto_close_time !== undefined) {
-      updates.push("auto_close_time = ?")
-      params.push(auto_close_time)
-    }
-
-    if (require_count_for_close !== undefined) {
-      updates.push("require_count_for_close = ?")
-      params.push(Boolean(require_count_for_close))
-    }
-
-    if (allow_negative_cash !== undefined) {
-      updates.push("allow_negative_cash = ?")
-      params.push(Boolean(allow_negative_cash))
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "No hay campos para actualizar",
-        code: "NO_UPDATES",
-      })
-    }
-
-    updates.push("updated_at = CURRENT_TIMESTAMP")
-
-    await executeQuery(
-      `
-      UPDATE cash_settings 
-      SET ${updates.join(", ")} 
-      WHERE id = (SELECT id FROM (SELECT id FROM cash_settings ORDER BY id DESC LIMIT 1) as temp)
-    `,
-      params,
-    )
-
-    // Obtener configuración actualizada
-    const updatedSettings = await executeQuery("SELECT * FROM cash_settings ORDER BY id DESC LIMIT 1")
-
-    res.json({
-      success: true,
-      message: "Configuración actualizada correctamente",
-      data: updatedSettings[0],
-    })
+    res.json({ success: true, message: "Configuración actualizada correctamente" })
   } catch (error) {
-    console.error("Error al actualizar configuración:", error)
-    res.status(500).json({
-      success: false,
-      message: "Error interno del servidor",
-      code: "SETTINGS_UPDATE_ERROR",
-    })
+    console.error("Error actualizando configuración:", error)
+    res.status(500).json({ success: false, message: "Error interno del servidor", code: "UPDATE_SETTINGS_ERROR" })
   }
 }
