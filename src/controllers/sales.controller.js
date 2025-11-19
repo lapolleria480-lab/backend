@@ -1020,7 +1020,7 @@ export const cancelSale = async (req, res) => {
     const itemsQuery = await executeQuery("SELECT * FROM sale_items WHERE sale_id = ?", [saleId])
     console.log("📦 Items de la venta:", itemsQuery.length)
 
-    // CORREGIDO: Obtener stock actual de productos y validar existencia
+    // Obtener stock actual de productos y validar existencia
     const productStockInfo = []
     for (const item of itemsQuery) {
       const productQuery = await executeQuery("SELECT id, name, stock, unit_type FROM products WHERE id = ?", [
@@ -1033,7 +1033,7 @@ export const cancelSale = async (req, res) => {
           product_id: item.product_id,
           product_name: product.name,
           unit_type: product.unit_type,
-          quantity: Number.parseFloat(item.quantity), // CORREGIDO: parseFloat para decimales
+          quantity: Number.parseFloat(item.quantity),
           current_stock: Number.parseFloat(product.stock),
           new_stock: Number.parseFloat(product.stock) + Number.parseFloat(item.quantity),
         })
@@ -1081,7 +1081,7 @@ export const cancelSale = async (req, res) => {
       `,
         params: [
           stockInfo.product_id,
-          stockInfo.quantity, // CORREGIDO: Cantidad positiva para entrada
+          stockInfo.quantity,
           stockInfo.current_stock,
           stockInfo.new_stock,
           `Cancelación venta #${saleId} - ${reason}`,
@@ -1090,7 +1090,7 @@ export const cancelSale = async (req, res) => {
       })
     }
 
-    // 4. CORREGIDO: Crear movimientos de cancelación en caja con montos negativos correctos
+    // 4. Fixed: Create withdrawal movements in cash with valid 'withdrawal' type
     try {
       const openSession = await executeQuery("SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1")
 
@@ -1105,17 +1105,17 @@ export const cancelSale = async (req, res) => {
             const paymentMethods = JSON.parse(sale.payment_methods)
             console.log("💳 Procesando cancelación para múltiples métodos de pago:", paymentMethods)
 
-            // Crear movimiento de cancelación para cada método de pago
+            // Crear movimiento de retiro para cada método de pago
             for (const pm of paymentMethods) {
               queries.push({
                 query: `
                 INSERT INTO cash_movements (
                   cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-                ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
               `,
                 params: [
                   sessionId,
-                  -Math.abs(Number.parseFloat(pm.amount)), // CRÍTICO: Monto negativo para cancelación
+                  -Math.abs(Number.parseFloat(pm.amount)), // Monto negativo para retiro
                   `Cancelación Venta #${saleId} (${pm.method}) - ${reason}`,
                   pm.method,
                   saleId,
@@ -1130,11 +1130,11 @@ export const cancelSale = async (req, res) => {
               query: `
               INSERT INTO cash_movements (
                 cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-              ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             `,
               params: [
                 sessionId,
-                -Math.abs(Number.parseFloat(sale.total)), // CRÍTICO: Monto negativo
+                -Math.abs(Number.parseFloat(sale.total)), // Monto negativo
                 `Cancelación Venta #${saleId} - ${reason}`,
                 "multiple",
                 saleId,
@@ -1148,11 +1148,11 @@ export const cancelSale = async (req, res) => {
             query: `
             INSERT INTO cash_movements (
               cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-            ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `,
             params: [
               sessionId,
-              -Math.abs(Number.parseFloat(sale.total)), // CRÍTICO: Monto negativo para cancelación
+              -Math.abs(Number.parseFloat(sale.total)), // Monto negativo para retiro
               `Cancelación Venta #${saleId} - ${reason}`,
               sale.payment_method,
               saleId,
@@ -1161,7 +1161,7 @@ export const cancelSale = async (req, res) => {
           })
         }
 
-        console.log("💰 Movimientos de caja preparados para cancelación con montos negativos")
+        console.log("💰 Movimientos de caja preparados para cancelación con tipo 'withdrawal'")
       } else {
         console.warn("⚠️ No hay caja abierta, omitiendo movimientos de caja")
       }
@@ -1169,7 +1169,7 @@ export const cancelSale = async (req, res) => {
       console.warn("⚠️ Error preparando movimientos de cancelación en caja:", cashError)
     }
 
-    // 5. CORREGIDO: Manejar transacciones de cliente para cuenta corriente
+    // 5. Manejar transacciones de cliente para cuenta corriente
     const isMultiplePayment = sale.payment_method === "multiple" && sale.payment_methods
 
     if (isMultiplePayment) {
@@ -1188,7 +1188,7 @@ export const cancelSale = async (req, res) => {
           `,
             params: [
               sale.customer_id,
-              Number.parseFloat(ccPayment.amount), // Monto positivo para crédito (reversión)
+              Number.parseFloat(ccPayment.amount),
               `Cancelación parcial de venta #${saleId} - ${reason}`,
               `Cancelación venta #${saleId} (Parcial)`,
               req.user?.id || null,
@@ -1209,7 +1209,7 @@ export const cancelSale = async (req, res) => {
       `,
         params: [
           sale.customer_id,
-          Number.parseFloat(sale.total), // Monto positivo para crédito (reversión)
+          Number.parseFloat(sale.total),
           `Cancelación de venta #${saleId} - ${reason}`,
           `Cancelación venta #${saleId}`,
           req.user?.id || null,
@@ -1219,7 +1219,7 @@ export const cancelSale = async (req, res) => {
 
     console.log(`🔄 Ejecutando transacción con ${queries.length} queries...`)
 
-    // CORREGIDO: Ejecutar todas las queries en una sola transacción
+    // Ejecutar todas las queries en una sola transacción
     await executeTransaction(queries)
 
     console.log("🎉 === VENTA CANCELADA EXITOSAMENTE ===")

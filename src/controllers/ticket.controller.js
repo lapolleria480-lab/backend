@@ -366,19 +366,8 @@ export const generateThermalPDF = async (req, res) => {
       })
     }
 
-    // --- Conversión mm -> puntos y tamaño dinámico ---
-    const mmToPoints = mm => mm * 2.834645669
-
-    // ancho en mm configurable (58 o 80)
-    const paperWidthMm = Number(ticketConfig?.paper_width) || 58
-    const THERMAL_WIDTH = mmToPoints(paperWidthMm)
-
-    // altura base grande + mm extra para la cola
-    const BASE_HEIGHT = 10000 // valor anterior usado como base
-    const EXTRA_SAFE_MM = Number(ticketConfig?.end_blank_mm) || 40 // mm extra por defecto 40
-    const EXTRA_SAFE_PTS = mmToPoints(EXTRA_SAFE_MM)
-    const PAGE_HEIGHT = BASE_HEIGHT + EXTRA_SAFE_PTS
-
+    // 58mm = 164.409 puntos (1mm = 2.834645669 puntos)
+    const THERMAL_WIDTH = 164.409 // 58mm en puntos
     const MARGIN_LEFT = 3  // Reducido de 8 a 3
     const MARGIN_RIGHT = 3 // Reducido de 8 a 3
     const CONTENT_WIDTH = THERMAL_WIDTH - MARGIN_LEFT - MARGIN_RIGHT
@@ -401,7 +390,7 @@ export const generateThermalPDF = async (req, res) => {
     // Buffer para almacenar el PDF
     const chunks = []
     doc.on('data', chunk => chunks.push(chunk))
-
+    
     // Promesa para cuando termine de generar
     const pdfPromise = new Promise((resolve, reject) => {
       doc.on('end', () => {
@@ -505,17 +494,17 @@ export const generateThermalPDF = async (req, res) => {
 
     // Fecha y hora
     const saleDate = new Date(saleData.sale.created_at)
-    const dateStr = saleDate.toLocaleDateString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
+    const dateStr = saleDate.toLocaleDateString('es-AR', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric' 
     })
-    const timeStr = saleDate.toLocaleTimeString('es-AR', {
-      hour: '2-digit',
+    const timeStr = saleDate.toLocaleTimeString('es-AR', { 
+      hour: '2-digit', 
       minute: '2-digit',
       hour12: true
     })
-
+    
     doc.font('Helvetica-Bold')
       .fontSize(fontSize.small)
       .fillColor('#000000') // Color negro sólido
@@ -533,8 +522,8 @@ export const generateThermalPDF = async (req, res) => {
     yPosition += 3
 
     // === INFORMACIÓN DEL CLIENTE ===
-    if (ticketConfig?.show_customer && saleData.sale.customer_name &&
-      saleData.sale.customer_name !== 'Consumidor Final') {
+    if (ticketConfig?.show_customer && saleData.sale.customer_name && 
+        saleData.sale.customer_name !== 'Consumidor Final') {
       doc.undash()
         .font('Helvetica-Bold')
         .fontSize(fontSize.small)
@@ -588,7 +577,7 @@ export const generateThermalPDF = async (req, res) => {
 
     // Items
     doc.undash().font('Helvetica-Bold').fontSize(fontSize.small).fillColor('#000000') // Color negro sólido
-
+    
     for (const item of saleData.items) {
       const quantity = parseFloat(item.quantity)
       const unitPrice = parseFloat(item.unit_price)
@@ -606,21 +595,21 @@ export const generateThermalPDF = async (req, res) => {
       doc.font('Helvetica-Bold')
         .fontSize(fontSize.small)
         .fillColor('#000000') // Color negro sólido
-
+      
       const detailText = `${quantity} ${unit} x $${unitPrice.toFixed(2)}`
       const totalText = `$${totalPrice.toFixed(2)}`
-
+      
       // Cantidad y precio unitario
       doc.text(detailText, MARGIN_LEFT, yPosition, {
         width: CONTENT_WIDTH * 0.65,
         continued: true
       })
-        // Total alineado a la derecha
-        .text(totalText, {
-          width: CONTENT_WIDTH * 0.35,
-          align: 'right'
-        })
-
+      // Total alineado a la derecha
+      .text(totalText, {
+        width: CONTENT_WIDTH * 0.35,
+        align: 'right'
+      })
+      
       yPosition = doc.y + 2
     }
 
@@ -660,10 +649,10 @@ export const generateThermalPDF = async (req, res) => {
           width: CONTENT_WIDTH * 0.5,
           continued: true
         })
-        .text(`$${tax.toFixed(2)}`, {
-          width: CONTENT_WIDTH * 0.5,
-          align: 'right'
-        })
+      .text(`$${tax.toFixed(2)}`, {
+        width: CONTENT_WIDTH * 0.5,
+        align: 'right'
+      })
       yPosition = doc.y + 1
     }
 
@@ -724,10 +713,10 @@ export const generateThermalPDF = async (req, res) => {
             width: CONTENT_WIDTH * 0.6,
             continued: true
           })
-            .text(`$${parseFloat(pm.amount).toFixed(2)}`, {
-              width: CONTENT_WIDTH * 0.4,
-              align: 'right'
-            })
+          .text(`$${parseFloat(pm.amount).toFixed(2)}`, {
+            width: CONTENT_WIDTH * 0.4,
+            align: 'right'
+          })
           yPosition = doc.y + 1
         }
       } else {
@@ -849,14 +838,8 @@ export const generateThermalPDF = async (req, res) => {
       yPosition = doc.y + 2
     }
 
-    const endBlankLines = Number(ticketConfig?.end_blank_lines) || 30
-
-    // Mover un poco y añadir líneas en blanco repetidas
-    doc.moveDown(1)
-    if (endBlankLines > 0) {
-      doc.font('Helvetica').fontSize(fontSize.small)
-      doc.text('\n'.repeat(endBlankLines))
-    }
+    // Agregado espacio adicional de 30 puntos al final
+    yPosition += 30
 
     // Finalizar el documento
     doc.end()
@@ -880,3 +863,4 @@ export const generateThermalPDF = async (req, res) => {
     })
   }
 }
++9
