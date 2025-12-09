@@ -379,12 +379,13 @@ export const getOrCreateDefaultCustomer = async () => {
   }
 }
 
-// ACTUALIZADO: Crear nueva venta SIN descuentos
+// ACTUALIZADO: Crear nueva venta CON descuentos
 export const createSale = async (req, res) => {
   try {
     const {
       items,
       subtotal,
+      discount = 0,
       tax = 0,
       total,
       payment_method,
@@ -400,6 +401,8 @@ export const createSale = async (req, res) => {
       payment_method,
       payment_methods,
       items_count: items?.length,
+      subtotal,
+      discount,
       total,
       userId: req.user?.id,
     })
@@ -476,8 +479,8 @@ export const createSale = async (req, res) => {
       }
     }
 
-    // Validar y convertir valores numéricos - SIN descuento
     const subtotalAmount = Number.parseFloat(subtotal)
+    const discountAmount = Number.parseFloat(discount) || 0
     const taxAmount = Number.parseFloat(tax) || 0
     const totalAmount = Number.parseFloat(total)
 
@@ -490,6 +493,15 @@ export const createSale = async (req, res) => {
       })
     }
 
+    if (discountAmount < 0 || discountAmount > subtotalAmount) {
+      console.log("❌ Error: Descuento inválido")
+      return res.status(400).json({
+        success: false,
+        message: "El descuento debe estar entre 0 y el subtotal",
+        code: "INVALID_DISCOUNT",
+      })
+    }
+
     if (isNaN(totalAmount) || totalAmount <= 0) {
       console.log("❌ Error: Total inválido")
       return res.status(400).json({
@@ -499,10 +511,15 @@ export const createSale = async (req, res) => {
       })
     }
 
-    // Validar coherencia de cálculos - SIN descuento
-    const calculatedTotal = subtotalAmount + taxAmount
+    const calculatedTotal = subtotalAmount - discountAmount + taxAmount
     if (Math.abs(calculatedTotal - totalAmount) > 0.01) {
-      console.log("❌ Error: Cálculo incorrecto")
+      console.log("❌ Error: Cálculo incorrecto", {
+        subtotal: subtotalAmount,
+        discount: discountAmount,
+        tax: taxAmount,
+        calculated: calculatedTotal,
+        received: totalAmount,
+      })
       return res.status(400).json({
         success: false,
         message: "Error en el cálculo del total",
@@ -777,7 +794,6 @@ export const createSale = async (req, res) => {
 
     console.log("✅ Stock verificado para", productStockInfo.length, "productos")
 
-    // Crear la venta - SIN descuento
     console.log("💾 Creando venta en base de datos...")
 
     // Obtener la ID de la sesión de caja abierta actual
@@ -786,11 +802,12 @@ export const createSale = async (req, res) => {
 
     const saleResult = await executeQuery(
       `INSERT INTO sales (
-      subtotal, tax, total, payment_method, payment_methods, payment_data, 
+      subtotal, discount, tax, total, payment_method, payment_methods, payment_data, 
       customer_id, notes, user_id, status, created_at, cash_session_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?)`,
       [
         subtotalAmount,
+        discountAmount,
         taxAmount,
         totalAmount,
         isMultiplePayment ? "multiple" : payment_method,
