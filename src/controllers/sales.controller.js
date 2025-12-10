@@ -31,7 +31,7 @@ export const registerSaleInCash = async (saleId, totalAmount, paymentMethod, pay
         if (amount > 0) {
           await executeQuery(
             `INSERT INTO cash_movements (
-            cash_session_id, type, amount, description, payment_method, 
+            cash_session_id, type, amount, description, payment_method,
             sale_id, user_id, created_at
           ) VALUES (?, 'sale', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
             [sessionId, amount, `Venta #${saleId} (${pm.method})`, pm.method, saleId, userId],
@@ -121,7 +121,7 @@ export const getSales = async (req, res) => {
     const { start_date, end_date, payment_method, status, customer_id, search, page = 1, limit = 25 } = req.query
 
     let sql = `
-    SELECT 
+    SELECT
       s.*,
       u.name as cashier_name,
       c.name as customer_name,
@@ -181,9 +181,9 @@ export const getSales = async (req, res) => {
     const offset = (pageNum - 1) * limitNum
 
     // Crear consulta para el total (optimizada)
-    let countSql = `SELECT COUNT(DISTINCT s.id) as total FROM sales s 
-                  LEFT JOIN customers c ON s.customer_id = c.id 
-                  LEFT JOIN users u ON s.user_id = u.id 
+    let countSql = `SELECT COUNT(DISTINCT s.id) as total FROM sales s
+                  LEFT JOIN customers c ON s.customer_id = c.id
+                  LEFT JOIN users u ON s.user_id = u.id
                   WHERE 1=1`
     const countParams = []
 
@@ -265,7 +265,7 @@ export const getSaleById = async (req, res) => {
     }
 
     const salesQuery = `
-    SELECT 
+    SELECT
       s.*,
       u.name as cashier_name,
       u.email as cashier_email,
@@ -293,7 +293,7 @@ export const getSaleById = async (req, res) => {
 
     // Obtener items de la venta
     const itemsQuery = `
-    SELECT 
+    SELECT
       si.*,
       p.name as product_name,
       p.image as product_image,
@@ -379,13 +379,13 @@ export const getOrCreateDefaultCustomer = async () => {
   }
 }
 
-// ACTUALIZADO: Crear nueva venta CON descuentos
+// ACTUALIZADO: Crear nueva venta CON y SIN descuentos
 export const createSale = async (req, res) => {
   try {
     const {
       items,
       subtotal,
-      discount = 0,
+      discount = 0, // Nuevo campo para descuento
       tax = 0,
       total,
       payment_method,
@@ -400,9 +400,8 @@ export const createSale = async (req, res) => {
       customer_id,
       payment_method,
       payment_methods,
+      discount, // Incluir descuento en logs
       items_count: items?.length,
-      subtotal,
-      discount,
       total,
       userId: req.user?.id,
     })
@@ -479,6 +478,7 @@ export const createSale = async (req, res) => {
       }
     }
 
+    // Validar y convertir valores numéricos - CON descuento
     const subtotalAmount = Number.parseFloat(subtotal)
     const discountAmount = Number.parseFloat(discount) || 0
     const taxAmount = Number.parseFloat(tax) || 0
@@ -493,11 +493,21 @@ export const createSale = async (req, res) => {
       })
     }
 
-    if (discountAmount < 0 || discountAmount > subtotalAmount) {
+    // Validar discount
+    if (discountAmount < 0) {
       console.log("❌ Error: Descuento inválido")
       return res.status(400).json({
         success: false,
-        message: "El descuento debe estar entre 0 y el subtotal",
+        message: "El descuento no puede ser negativo",
+        code: "INVALID_DISCOUNT",
+      })
+    }
+
+    if (discountAmount > subtotalAmount) {
+      console.log("❌ Error: Descuento mayor al subtotal")
+      return res.status(400).json({
+        success: false,
+        message: "El descuento no puede ser mayor al subtotal",
         code: "INVALID_DISCOUNT",
       })
     }
@@ -511,15 +521,11 @@ export const createSale = async (req, res) => {
       })
     }
 
+    // Validar coherencia de cálculos - CON descuento
     const calculatedTotal = subtotalAmount - discountAmount + taxAmount
     if (Math.abs(calculatedTotal - totalAmount) > 0.01) {
-      console.log("❌ Error: Cálculo incorrecto", {
-        subtotal: subtotalAmount,
-        discount: discountAmount,
-        tax: taxAmount,
-        calculated: calculatedTotal,
-        received: totalAmount,
-      })
+      console.log("❌ Error: Cálculo incorrecto")
+      console.log("Calculado:", calculatedTotal, "Recibido:", totalAmount)
       return res.status(400).json({
         success: false,
         message: "Error en el cálculo del total",
@@ -794,6 +800,7 @@ export const createSale = async (req, res) => {
 
     console.log("✅ Stock verificado para", productStockInfo.length, "productos")
 
+    // Crear la venta - CON y SIN descuento
     console.log("💾 Creando venta en base de datos...")
 
     // Obtener la ID de la sesión de caja abierta actual
@@ -802,12 +809,12 @@ export const createSale = async (req, res) => {
 
     const saleResult = await executeQuery(
       `INSERT INTO sales (
-      subtotal, discount, tax, total, payment_method, payment_methods, payment_data, 
+      subtotal, discount, tax, total, payment_method, payment_methods, payment_data,
       customer_id, notes, user_id, status, created_at, cash_session_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', CURRENT_TIMESTAMP, ?)`,
       [
         subtotalAmount,
-        discountAmount,
+        discountAmount, // Guardar descuento
         taxAmount,
         totalAmount,
         isMultiplePayment ? "multiple" : payment_method,
@@ -940,7 +947,7 @@ export const createSale = async (req, res) => {
     // Obtener la venta creada con todos los detalles
     const newSale = await executeQuery(
       `
-    SELECT 
+    SELECT
       s.*,
       u.name as cashier_name,
       c.name as customer_name
@@ -955,7 +962,7 @@ export const createSale = async (req, res) => {
     // Obtener los items de la venta
     const saleItems = await executeQuery(
       `
-    SELECT 
+    SELECT
       si.*,
       p.name as product_name,
       p.image as product_image,
@@ -1014,7 +1021,7 @@ export const cancelSale = async (req, res) => {
 
     const saleQuery = await executeQuery(
       `
-      SELECT s.*, cs.status as session_status 
+      SELECT s.*, cs.status as session_status
       FROM sales s
       LEFT JOIN cash_sessions cs ON s.cash_session_id = cs.id
       WHERE s.id = ? AND s.status = 'completed'
@@ -1090,12 +1097,12 @@ export const cancelSale = async (req, res) => {
 
     queries.push({
       query: `
-      UPDATE sales 
-      SET status = 'cancelled', 
+      UPDATE sales
+      SET status = 'cancelled',
           notes = CONCAT(COALESCE(notes, ''), ' - Cancelada: ', ?),
           cancelled_by = ?,
           cancelled_at = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP 
+          updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `,
       params: [reason, req.user?.id || null, saleId],
@@ -1286,7 +1293,7 @@ export const cancelSale = async (req, res) => {
   }
 }
 
-// Obtener estadísticas de ventas (mantener lógica original) - SIN descuentos
+// Obtener estadísticas de ventas (mantener lógica original) - CON y SIN descuentos
 export const getSalesStats = async (req, res) => {
   try {
     const { period = "today" } = req.query
@@ -1319,10 +1326,10 @@ export const getSalesStats = async (req, res) => {
         break
     }
 
-    // Estadísticas generales - SIN descuentos
+    // Estadísticas generales - CON y SIN descuentos
     const generalStats = await executeQuery(
       `
-    SELECT 
+    SELECT
       COUNT(*) as total_sales,
       SUM(CASE WHEN s.status = 'completed' THEN 1 ELSE 0 END) as completed_sales,
       SUM(CASE WHEN s.status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_sales,
@@ -1338,8 +1345,8 @@ export const getSalesStats = async (req, res) => {
     // Ventas por método de pago (considerar múltiples métodos)
     const paymentMethodStats = await executeQuery(
       `
-    SELECT 
-      CASE 
+    SELECT
+      CASE
         WHEN s.payment_method = 'multiple' THEN 'multiple'
         ELSE s.payment_method
       END as payment_method,
@@ -1347,7 +1354,7 @@ export const getSalesStats = async (req, res) => {
       COALESCE(SUM(s.total), 0) as total_amount
     FROM sales s
     WHERE s.status = 'completed' ${dateFilter}
-    GROUP BY CASE 
+    GROUP BY CASE
       WHEN s.payment_method = 'multiple' THEN 'multiple'
       ELSE s.payment_method
     END
@@ -1359,7 +1366,7 @@ export const getSalesStats = async (req, res) => {
     // ACTUALIZADO: Productos más vendidos limitados a 10
     const topProducts = await executeQuery(
       `
-    SELECT 
+    SELECT
       p.id,
       p.name,
       p.image,
@@ -1381,7 +1388,7 @@ export const getSalesStats = async (req, res) => {
     let hourlyStats = []
     if (period === "today") {
       hourlyStats = await executeQuery(`
-      SELECT 
+      SELECT
         HOUR(s.created_at) as hour,
         COUNT(*) as sales_count,
         COALESCE(SUM(s.total), 0) as total_amount
@@ -1395,7 +1402,7 @@ export const getSalesStats = async (req, res) => {
     // ACTUALIZADO: Top clientes limitados a 10
     const topCustomers = await executeQuery(
       `
-    SELECT 
+    SELECT
       c.id,
       c.name,
       COUNT(s.id) as total_sales,
@@ -1430,7 +1437,7 @@ export const getSalesStats = async (req, res) => {
   }
 }
 
-// Obtener resumen de ventas diarias - SIN descuentos
+// Obtener resumen de ventas diarias - CON y SIN descuentos
 export const getDailySalesReport = async (req, res) => {
   try {
     const { start_date, end_date } = req.query
@@ -1450,7 +1457,7 @@ export const getDailySalesReport = async (req, res) => {
 
     const dailyReport = await executeQuery(
       `
-    SELECT 
+    SELECT
       DATE(s.created_at) as date,
       COUNT(*) as total_sales,
       COALESCE(SUM(s.total), 0) as total_revenue,
