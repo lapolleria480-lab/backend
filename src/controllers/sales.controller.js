@@ -999,7 +999,7 @@ export const createSale = async (req, res) => {
   }
 }
 
-// CORREGIDO: Cancelar venta con validación de sesión y tipo 'cancellation'
+// CORREGIDO: Cancelar venta con validación de sesión y tipo 'withdrawal'
 export const cancelSale = async (req, res) => {
   try {
     const { id } = req.params
@@ -1139,6 +1139,7 @@ export const cancelSale = async (req, res) => {
       })
     }
 
+    // 4. Crear movimiento en caja para la cancelación
     try {
       // La venta ya está asociada a una sesión, usar esa sesión
       const sessionId = sale.cash_session_id
@@ -1157,7 +1158,7 @@ export const cancelSale = async (req, res) => {
               query: `
                 INSERT INTO cash_movements (
                   cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-                ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
               `,
               params: [
                 sessionId,
@@ -1176,7 +1177,7 @@ export const cancelSale = async (req, res) => {
             query: `
               INSERT INTO cash_movements (
                 cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-              ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+              ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             `,
             params: [
               sessionId,
@@ -1194,7 +1195,7 @@ export const cancelSale = async (req, res) => {
           query: `
             INSERT INTO cash_movements (
               cash_session_id, type, amount, description, payment_method, sale_id, user_id, created_at
-            ) VALUES (?, 'cancellation', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, 'withdrawal', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
           `,
           params: [
             sessionId,
@@ -1207,7 +1208,7 @@ export const cancelSale = async (req, res) => {
         })
       }
 
-      console.log("💰 Movimientos de caja preparados para cancelación con tipo 'cancellation'")
+      console.log("💰 Movimientos de caja preparados para cancelación con tipo 'withdrawal'")
     } catch (cashError) {
       console.warn("⚠️ Error preparando movimientos de cancelación en caja:", cashError)
     }
@@ -1267,7 +1268,7 @@ export const cancelSale = async (req, res) => {
 
     console.log("🎉 === VENTA CANCELADA EXITOSAMENTE ===")
     console.log("✅ Stock restaurado para", productStockInfo.length, "productos")
-    console.log("✅ Movimientos financieros revertidos con tipo 'cancellation'")
+    console.log("✅ Movimientos financieros revertidos con tipo 'withdrawal'")
     console.log("✅ Estado de venta actualizado con usuario y fecha de cancelación")
 
     res.json({
