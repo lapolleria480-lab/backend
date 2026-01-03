@@ -398,9 +398,9 @@ export const openCash = async (req, res) => {
       query: `
         INSERT INTO cash_movements (
           cash_session_id, type, amount, description, user_id, created_at
-        ) VALUES (LAST_INSERT_ID(), 'opening', ?, ?, ?, CURRENT_TIMESTAMP)
+        ) VALUES (LAST_INSERT_ID(), 'opening', ?, 'Apertura de caja', ?, CURRENT_TIMESTAMP)
       `,
-      params: [openingAmount, "Apertura de caja", userId],
+      params: [openingAmount, userId],
     })
 
     await executeTransaction(queries)
@@ -439,14 +439,28 @@ export const openCash = async (req, res) => {
 // CORREGIDO: Cerrar caja con cálculos precisos SIN cuenta corriente
 export const closeCash = async (req, res) => {
   try {
-    const { closing_amount, closing_notes, expected_amount, bills, coins } = req.body
+    const {
+      closing_amount,
+      expected_amount,
+      closing_notes,
+      bills,
+      coins,
+      // New format parameters
+      notes,
+      physical_cash_amount,
+      compare_with_physical,
+    } = req.body
 
-    if (!closing_amount || Number.isNaN(Number.parseFloat(closing_amount))) {
-      return res.status(400).json({
-        success: false,
-        message: "El monto de cierre es requerido y debe ser un número válido",
-      })
-    }
+    console.log("🚀 === INICIO CERRAR CAJA ===")
+    console.log("📝 Datos recibidos:", {
+      closing_amount,
+      expected_amount,
+      closing_notes,
+      notes,
+      physical_cash_amount,
+      compare_with_physical,
+      userId: req.user?.id,
+    })
 
     const currentSessionQuery = await executeQuery(
       "SELECT * FROM cash_sessions WHERE status = 'open' ORDER BY opening_date DESC LIMIT 1",
@@ -630,14 +644,28 @@ export const closeCash = async (req, res) => {
     const netProfit = totalIncome - totalOutcome
     const totalGeneralCash = Number.parseFloat(session.opening_amount) + totalIncome - totalOutcome
 
-    const difference = Number.parseFloat(closing_amount) - physicalCashIncome
+    const finalClosingAmount =
+      physical_cash_amount !== undefined && physical_cash_amount !== null
+        ? Number.parseFloat(physical_cash_amount)
+        : closing_amount !== undefined && closing_amount !== null
+          ? Number.parseFloat(closing_amount)
+          : physicalCashIncome
+
+    const finalExpectedAmount =
+      expected_amount !== undefined && expected_amount !== null
+        ? Number.parseFloat(expected_amount)
+        : physicalCashIncome
+
+    const finalClosingNotes = closing_notes || notes || null
+
+    const difference = finalClosingAmount - physicalCashIncome
 
     console.log("📊 TOTALES EN CIERRE:")
     console.log(`  💵 Ventas Efectivo: $${salesCash}`)
     console.log(`  💳 Ventas Tarjeta: $${salesCard}`)
     console.log(`  🏦 Ventas Transferencia: $${salesTransfer}`)
     console.log(`  💰 Efectivo Físico Calculado: $${physicalCashIncome}`)
-    console.log(`  💵 Efectivo Físico Contado: $${closing_amount}`)
+    console.log(`  💵 Efectivo Físico Contado: $${finalClosingAmount}`)
     console.log(`  📊 Diferencia: $${difference}`)
     console.log(`  ✅ Total Ingresos: $${totalIncome}`)
     console.log(`  ❌ Total Egresos: $${totalOutcome}`)
@@ -645,8 +673,6 @@ export const closeCash = async (req, res) => {
     console.log(`  🏦 Total General Caja: $${totalGeneralCash}`)
 
     const queries = []
-
-    const userId = req.user?.id || null
 
     // Actualizar sesión
     queries.push({
@@ -672,11 +698,11 @@ export const closeCash = async (req, res) => {
         WHERE id = ?
       `,
       params: [
-        closing_amount,
-        expected_amount || physicalCashIncome,
+        finalClosingAmount,
+        finalExpectedAmount,
         difference,
-        closing_notes || null,
-        userId,
+        finalClosingNotes,
+        req.user?.id || null,
         totalSales,
         salesCash,
         salesCard,
@@ -697,7 +723,12 @@ export const closeCash = async (req, res) => {
           cash_session_id, type, amount, description, user_id, created_at
         ) VALUES (?, 'closing', ?, ?, ?, CURRENT_TIMESTAMP)
       `,
-      params: [session.id, closing_amount, `Cierre de caja. Diferencia: ${formatCurrency(difference)}`, userId],
+      params: [
+        session.id,
+        finalClosingAmount,
+        `Cierre de caja. Diferencia: ${formatCurrency(difference)}`,
+        req.user?.id || null,
+      ],
     })
 
     // Guardar arqueo si se proporcionó
@@ -712,12 +743,12 @@ export const closeCash = async (req, res) => {
         params: [
           session.id,
           physicalCashIncome,
-          closing_amount,
+          finalClosingAmount,
           difference,
           JSON.stringify(bills),
           JSON.stringify(coins),
-          closing_notes || null,
-          userId,
+          finalClosingNotes,
+          req.user?.id || null,
         ],
       })
     }
@@ -731,7 +762,7 @@ export const closeCash = async (req, res) => {
       message: "Caja cerrada correctamente",
       data: {
         sessionId: session.id,
-        closing_amount,
+        closing_amount: finalClosingAmount,
         expected_amount: physicalCashIncome,
         difference,
         totalSales,
