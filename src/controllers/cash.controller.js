@@ -672,6 +672,41 @@ export const closeCash = async (req, res) => {
     console.log(`  💎 Ganancia Neta: $${netProfit}`)
     console.log(`  🏦 Total General Caja: $${totalGeneralCash}`)
 
+    const earningsDetails = {
+      totalEarnings: netProfit,
+      totalIncome,
+      totalOutcome,
+      totalGeneralCash,
+      sales: {
+        cash: salesCash,
+        card: salesCard,
+        transfer: salesTransfer,
+        accountPayable: salesAccountPayable,
+        total: totalSales,
+        count: salesCount,
+      },
+      deposits: {
+        amount: depositsCash,
+      },
+      accountPayments: {
+        amount: accountReceivablePayments,
+      },
+      expenses: {
+        amount: totalExpenses,
+      },
+      withdrawals: {
+        amount: totalWithdrawals,
+      },
+      cancellations: {
+        amount: totalCancellations,
+      },
+      physicalCash: {
+        expected: physicalCashIncome,
+        counted: finalClosingAmount,
+        difference: difference,
+      },
+    }
+
     const queries = []
 
     // Actualizar sesión
@@ -731,27 +766,27 @@ export const closeCash = async (req, res) => {
       ],
     })
 
-    // Guardar arqueo si se proporcionó
-    if (bills && coins) {
-      queries.push({
-        query: `
-          INSERT INTO cash_counts (
-            cash_session_id, expected_amount, counted_amount, difference,
-            bills, coins, notes, user_id, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `,
-        params: [
-          session.id,
-          physicalCashIncome,
-          finalClosingAmount,
-          difference,
-          JSON.stringify(bills),
-          JSON.stringify(coins),
-          finalClosingNotes,
-          req.user?.id || null,
-        ],
-      })
-    }
+    queries.push({
+      query: `
+        INSERT INTO cash_counts (
+          cash_session_id, expected_amount, counted_amount, difference,
+          bills, coins, notes, user_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `,
+      params: [
+        session.id,
+        physicalCashIncome,
+        finalClosingAmount,
+        difference,
+        JSON.stringify(bills || {}),
+        JSON.stringify(coins || {}),
+        JSON.stringify({
+          text: finalClosingNotes,
+          earnings_details: earningsDetails,
+        }),
+        req.user?.id || null,
+      ],
+    })
 
     await executeTransaction(queries)
 
@@ -885,13 +920,13 @@ export const getCashSessionDetails = async (req, res) => {
         cs.id, cs.opening_amount, cs.closing_amount, cs.expected_amount, cs.difference, cs.status, 
         cs.opening_date, cs.closing_date, cs.opened_by, cs.closed_by, 
         cs.opening_notes, cs.closing_notes, cs.created_at, cs.updated_at,
+        cs.total_sales, cs.total_cash_sales, cs.total_card_sales, cs.total_transfer_sales,
+        cs.total_deposits, cs.total_withdrawals, cs.total_expenses, cs.sales_count, cs.profit,
         u_open.name as opened_by_name,
-        u_close.name as closed_by_name,
-        cc.notes as count_notes
+        u_close.name as closed_by_name
       FROM cash_sessions cs
       LEFT JOIN users u_open ON cs.opened_by = u_open.id
       LEFT JOIN users u_close ON cs.closed_by = u_close.id
-      LEFT JOIN cash_counts cc ON cs.id = cc.cash_session_id
       WHERE cs.id = ?
     `,
       [Number.parseInt(id)],
@@ -940,6 +975,48 @@ export const getCashSessionDetails = async (req, res) => {
       console.warn("Error parseando detalles de ganancias:", parseError)
     }
 
+    if (!earningsDetails && session.status === "closed") {
+      earningsDetails = {
+        totalEarnings: session.profit || 0,
+        totalIncome: (session.total_sales || 0) + (session.total_deposits || 0),
+        totalOutcome: (session.total_expenses || 0) + (session.total_withdrawals || 0),
+        totalGeneralCash:
+          (session.opening_amount || 0) +
+          (session.total_sales || 0) +
+          (session.total_deposits || 0) -
+          (session.total_expenses || 0) -
+          (session.total_withdrawals || 0),
+        sales: {
+          cash: session.total_cash_sales || 0,
+          card: session.total_card_sales || 0,
+          transfer: session.total_transfer_sales || 0,
+          accountPayable: 0,
+          total: session.total_sales || 0,
+          count: session.sales_count || 0,
+        },
+        deposits: {
+          amount: session.total_deposits || 0,
+        },
+        accountPayments: {
+          amount: 0,
+        },
+        expenses: {
+          amount: session.total_expenses || 0,
+        },
+        withdrawals: {
+          amount: session.total_withdrawals || 0,
+        },
+        cancellations: {
+          amount: 0,
+        },
+        physicalCash: {
+          expected: session.expected_amount || 0,
+          counted: session.closing_amount || 0,
+          difference: session.difference || 0,
+        },
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -949,11 +1026,11 @@ export const getCashSessionDetails = async (req, res) => {
       },
     })
   } catch (error) {
-    console.error("💥 Error al obtener detalles de sesión:", error)
+    console.error("Error al obtener detalles de sesión:", error)
     res.status(500).json({
       success: false,
-      message: "Error interno del servidor",
-      code: "SESSION_DETAILS_ERROR",
+      message: "Error al obtener los detalles de la sesión",
+      error: error.message,
     })
   }
 }
