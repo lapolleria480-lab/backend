@@ -528,3 +528,110 @@ export const getReportsStats = async (req, res) => {
     })
   }
 }
+
+// Gráficos: ventas por producto (kg y unidades) por período
+export const getProductSalesByPeriod = async (req, res) => {
+  try {
+    const { start_date, end_date, group_by = "day", product_ids } = req.query
+
+    const params = []
+    let dateFilter = "WHERE s.status = 'completed'"
+
+    if (start_date && /^\d{4}-\d{2}-\d{2}$/.test(start_date)) {
+      dateFilter += " AND DATE(s.created_at) >= ?"
+      params.push(start_date)
+    }
+
+    if (end_date && /^\d{4}-\d{2}-\d{2}$/.test(end_date)) {
+      dateFilter += " AND DATE(s.created_at) <= ?"
+      params.push(end_date)
+    }
+
+    const validGroupBy = ["day", "week", "month"]
+    if (!validGroupBy.includes(group_by)) {
+      return res.status(400).json({
+        success: false,
+        message: "group_by debe ser: day, week, month",
+        code: "INVALID_GROUP_BY",
+      })
+    }
+
+    let periodExpr = "DATE(s.created_at)"
+    if (group_by === "week") {
+      periodExpr = "DATE_FORMAT(s.created_at, '%Y-%u')"
+    } else if (group_by === "month") {
+      periodExpr = "DATE_FORMAT(s.created_at, '%Y-%m')"
+    }
+
+    let productFilter = ""
+    if (product_ids && typeof product_ids === "string" && product_ids.trim()) {
+      const ids = product_ids.split(",").map((id) => id.trim()).filter(Boolean)
+      if (ids.length > 0) {
+        productFilter = ` AND p.id IN (${ids.map(() => "?").join(",")})`
+        params.push(...ids)
+      }
+    }
+
+    const raw = await executeQuery(
+      `
+      SELECT 
+        ${periodExpr} AS period,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.unit_type,
+        SUM(si.quantity) AS quantity
+      FROM sale_items si
+      JOIN sales s ON si.sale_id = s.id
+      JOIN products p ON si.product_id = p.id
+      ${dateFilter}
+      ${productFilter}
+      GROUP BY ${periodExpr}, p.id, p.name, p.unit_type
+      ORDER BY period ASC, p.name ASC
+    `,
+      params,
+    )
+
+    const periods = [...new Set(raw.map((r) => r.period))]
+    const byProduct = new Map()
+
+    for (const row of raw) {
+      const key = `${row.product_id}`
+      if (!byProduct.has(key)) {
+        byProduct.set(key, {
+          productId: row.product_id,
+          productName: row.product_name,
+          unitType: row.unit_type || "unidades",
+          values: [],
+        })
+      }
+      const series = byProduct.get(key)
+      const periodIndex = periods.indexOf(row.period)
+      while (series.values.length < periodIndex) {
+        series.values.push(0)
+      }
+      series.values.push(Number.parseFloat(row.quantity) || 0)
+    }
+
+    const series = Array.from(byProduct.values()).map((s) => {
+      while (s.values.length < periods.length) {
+        s.values.push(0)
+      }
+      return s
+    })
+
+    res.json({
+      success: true,
+      data: {
+        periods,
+        series,
+      },
+    })
+  } catch (error) {
+    console.error("Error obteniendo ventas por producto por período:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error obteniendo datos para gráficos",
+      code: "CHARTS_PRODUCT_SALES_ERROR",
+    })
+  }
+}

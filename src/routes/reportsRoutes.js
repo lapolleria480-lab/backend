@@ -7,6 +7,7 @@ import {
   getCategoryReport,
   getInventoryReport,
   getReportsStats,
+  getProductSalesByPeriod,
 } from "../controllers/reports.controller.js"
 import { authenticateToken } from "../middleware/auth.js"
 
@@ -23,5 +24,6 @@ router.get("/payment-methods", getPaymentMethodsReport)
 router.get("/categories", getCategoryReport)
 router.get("/inventory", getInventoryReport)
 router.get("/stats", getReportsStats)
+router.get("/charts/product-sales", getProductSalesByPeriod)
 
 export default router
